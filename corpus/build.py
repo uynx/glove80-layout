@@ -4,6 +4,7 @@ Usage: python3 corpus/build.py [total bytes, default 20000000]
 Put your own essays (.pdf or .txt) in corpus/private/. Downloads are cached in corpus/raw/.
 """
 import html
+import http.client
 import json
 import random
 import re
@@ -87,7 +88,7 @@ def get(url, headers=None):
             if e.code not in (429, 500, 502, 503, 504):
                 raise
             last = e.code
-        except (urllib.error.URLError, TimeoutError) as e:
+        except (http.client.HTTPException, OSError) as e:
             last = e
         time.sleep(min(60, 2 ** attempt * 2))
     raise RuntimeError(f"giving up on {url} ({last})")
@@ -117,6 +118,8 @@ def clean_reddit(s):
 
 def clean_arxiv(s):
     s = re.sub(r"@x(math|cite)\d*", "", s.replace("\n", " "))
+    s = re.sub(r" +", " ", s)
+    s = re.sub(r"(\w) - (\w)", r"\1-\2", s)
     s = re.sub(r" ([.,;:!?)\]])", r"\1", s)
     s = re.sub(r"([(\[]) ", r"\1", s)
     s = re.sub(r" (n't|'s|'re|'ve|'ll|'d|'m)\b", r"\1", s)
@@ -192,7 +195,7 @@ def gh_files(repo, tag, paths, exts, auth):
     return files
 
 
-COMMENT = re.compile(r"^(//|/\*|\*|#|--|\(\*|\{-|;)")
+COMMENT = re.compile(r"^(//|/\*|\*|#(\s|!|$)|--|\(\*|\{-|;)")
 
 
 def clean_code(s):
