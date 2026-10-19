@@ -4,9 +4,7 @@
   packages = [
     pkgs.gcc
     pkgs.gnumake
-    pkgs.git
-    pkgs.curl
     pkgs.poppler-utils
-    (pkgs.python3.withPackages (p: [ p.pyarrow p.fsspec p.aiohttp ]))
+    pkgs.python3
   ];
 }
