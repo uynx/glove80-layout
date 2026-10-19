@@ -47,7 +47,7 @@ int col_of(int p) { return p % 6; }
 int finger(int p) { return is_thumb(p) ? 4 : col_of(p) <= 1 ? 0 : std::min(col_of(p) - 1, 3); }
 double dist(int a, int b) { return std::hypot(row_of(a) - row_of(b), col_of(a) - col_of(b)); }
 
-const int TAB = key(0, 1, 0), SPACE = thumb_key(1, 5), ENTER = thumb_key(1, 4);
+const int TAB = key(0, 1, 0), ESC = key(0, 2, 0), SPACE = thumb_key(1, 5), ENTER = thumb_key(1, 4);
 // Where the digits sit on the symbol layer: "home" (12345 | 67890 on the home rows),
 // "numpad-left" / "numpad-right" (789/456/123, 0 under the pinky), or "free" (optimized).
 std::vector<std::pair<char, int>> digit_keys(const std::string& mode) {
@@ -137,7 +137,7 @@ Model build_model(const Weights& w, const std::string& digits, bool digits_on_ba
         for (int s = 0; s < S; s++) {
             int l = s / NP, p = s % NP;
             bool taken = std::find(m.pinned.begin(), m.pinned.end(), s) != m.pinned.end();
-            m.allowed[c * S + s] = !is_thumb(p) && !(l == 0 && p == TAB) && !(letter && l > 0) &&
+            m.allowed[c * S + s] = !is_thumb(p) && !(l == 0 && (p == TAB || p == ESC)) && !(letter && l > 0) &&
                                    !(digit && l == 0 && !digits_on_base) && !taken;
         }
     }
@@ -145,7 +145,8 @@ Model build_model(const Weights& w, const std::string& digits, bool digits_on_ba
 }
 
 std::string token(const Layout& L, int s) {
-    if (s % NP == TAB && s < NP) return "⇥";
+    if (s == TAB) return "⇥";
+    if (s == ESC) return "⎋";
     return L.occ[s] < 0 ? "·" : std::string(1, ALPHA[L.occ[s]]);
 }
 
