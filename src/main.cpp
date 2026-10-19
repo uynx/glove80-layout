@@ -170,7 +170,7 @@ Layout parse_layout(const Model& m, std::istream& in) {
     while (std::getline(in, line)) {
         for (int k = 0; k < LAYERS; k++)
             if (line == std::string(LAYER_NAME[k]) + ":") l = k, r = 0;
-        if (l < 0 || line.empty() || line.back() == ':') continue;
+        if (l < 0 || line.empty() || line.back() == ':' || r >= 4) continue;
         std::istringstream ss(line);
         std::string tok;
         for (int i = 0; ss >> tok && i < 12; i++) {
