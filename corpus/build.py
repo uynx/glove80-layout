@@ -78,17 +78,19 @@ FOLD = str.maketrans({
 
 def get(url, headers=None):
     req = urllib.request.Request(url, headers={"User-Agent": "glove80-layout", **(headers or {})})
-    for attempt in range(5):
+    last = None
+    for attempt in range(8):
         try:
             with urllib.request.urlopen(req, timeout=120) as r:
                 return r.read()
         except urllib.error.HTTPError as e:
             if e.code not in (429, 500, 502, 503, 504):
                 raise
-        except (urllib.error.URLError, TimeoutError):
-            pass
-        time.sleep(2 ** attempt * 2)
-    raise RuntimeError(f"giving up on {url}")
+            last = e.code
+        except (urllib.error.URLError, TimeoutError) as e:
+            last = e
+        time.sleep(min(60, 2 ** attempt * 2))
+    raise RuntimeError(f"giving up on {url} ({last})")
 
 
 def ascii_only(s):
@@ -156,7 +158,7 @@ def cached(name, limit, make):
         return path.read_text()[:limit]
     print(f"fetching {name} ({limit / 1e6:.1f} MB)", flush=True)
     text = "\n".join(make(limit))[:limit]
-    RAW.mkdir(exist_ok=True)
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text)
     return text
 
@@ -164,10 +166,9 @@ def cached(name, limit, make):
 def reddit(limit, rng):
     out = []
     for sub in SUBREDDITS:
-        print(f"  r/{sub}", flush=True)
-        out += hf("HuggingFaceGECLM/REDDIT_comments", "default", sub, "body", clean_reddit,
-                  limit // len(SUBREDDITS) + 1, rng)
-    rng.shuffle(out)
+        out.append(cached(f"reddit/{sub}", limit // len(SUBREDDITS) + 1,
+                          lambda n, sub=sub: hf("HuggingFaceGECLM/REDDIT_comments", "default", sub,
+                                                "body", clean_reddit, n, rng)))
     return out
 
 
