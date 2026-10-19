@@ -1,0 +1,30 @@
+name: Firmware
+
+on:
+  push:
+    paths: ["firmware/**", ".github/workflows/firmware.yml"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: moergo-sc/zmk
+          ref: ce69e85f585c724142aae37ddf8a7e019ff19e93
+          path: zmk
+      - uses: cachix/install-nix-action@v25
+        with:
+          nix_path: nixpkgs=channel:nixos-22.05
+      - uses: cachix/cachix-action@v14
+        with:
+          name: moergo-glove80-zmk-dev
+          skipPush: true
+      - run: nix-build firmware -o combined
+      - run: cp combined/glove80.uf2 glove80.uf2
+      - uses: actions/upload-artifact@v4
+        with:
+          name: glove80.uf2
+          path: glove80.uf2
