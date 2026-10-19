@@ -76,70 +76,78 @@ class Scorer {
 public:
     const Model& m;
     Ngrams n;
-    std::vector<std::vector<uint32_t>> bi_of, skip_of, tri_of;
 
-    Scorer(const Model& model, Ngrams grams) : m(model), n(std::move(grams)) {
-        const size_t N = ALPHA.size();
-        bi_of.resize(N), skip_of.resize(N), tri_of.resize(N);
-        for (uint32_t i = 0; i < n.bi.size(); i++) index(bi_of, i, {n.bi[i].a, n.bi[i].b});
-        for (uint32_t i = 0; i < n.skip.size(); i++) index(skip_of, i, {n.skip[i].a, n.skip[i].b});
-        for (uint32_t i = 0; i < n.tri.size(); i++) index(tri_of, i, {n.tri[i].a, n.tri[i].b, n.tri[i].c});
+    Scorer(const Model& model, Ngrams grams) : m(model), n(std::move(grams)), of(ALPHA.size()) {
+        for (auto& g : n.bi) for (int c : distinct(g)) of[c].bi.push_back(g);
+        for (auto& g : n.skip) for (int c : distinct(g)) of[c].skip.push_back(g);
+        for (auto& g : n.tri) for (int c : distinct(g)) of[c].tri.push_back(g);
     }
 
-    double cost(const Gram2& g, const std::vector<int>& p) const { return g.f * m.bi[p[g.a] * m.nslots + p[g.b]]; }
-    double skip_cost(const Gram2& g, const std::vector<int>& p) const {
-        return g.f * m.skip[m.phys[p[g.a]] * m.nphys + m.phys[p[g.b]]];
-    }
-    double cost(const Gram3& g, const std::vector<int>& p) const {
-        int np = m.nphys;
-        return g.f * m.tri[(m.phys[p[g.a]] * np + m.phys[p[g.b]]) * np + m.phys[p[g.c]]];
-    }
+    float bi(int a, int b) const { return m.bi[a * m.nslots + b]; }
+    float skip(int a, int b) const { return m.skip[m.phys[a] * m.nphys + m.phys[b]]; }
+    float tri(int a, int b, int c) const { return m.tri[(m.phys[a] * m.nphys + m.phys[b]) * m.nphys + m.phys[c]]; }
 
     double score(const std::vector<int>& p) const {
         double t = 0;
         for (size_t c = 0; c < n.mono.size(); c++)
             if (n.mono[c] > 0) t += n.mono[c] * m.mono[p[c]];
-        for (auto& g : n.bi) t += cost(g, p);
-        for (auto& g : n.skip) t += skip_cost(g, p);
-        for (auto& g : n.tri) t += cost(g, p);
+        for (auto& g : n.bi) t += g.f * bi(p[g.a], p[g.b]);
+        for (auto& g : n.skip) t += g.f * skip(p[g.a], p[g.b]);
+        for (auto& g : n.tri) t += g.f * tri(p[g.a], p[g.b], p[g.c]);
         return t;
     }
 
     // Swaps the contents of two slots and returns the change in score.
     double swap(Layout& L, int s1, int s2) const {
         int x = L.occ[s1], y = L.occ[s2];
-        double before = local(L.pos, x, y);
         std::swap(L.occ[s1], L.occ[s2]);
         if (x >= 0) L.pos[x] = s2;
         if (y >= 0) L.pos[y] = s1;
-        return local(L.pos, x, y) - before;
-    }
-
-private:
-    double local(const std::vector<int>& p, int x, int y) const {
-        double t = 0;
+        const auto& p = L.pos;
+        auto old = [&](int c) { return c == x ? s1 : c == y ? s2 : p[c]; };
+        double d = 0;
         for (int c : {x, y}) {
             if (c < 0) continue;
             int other = c == y ? x : -1;
-            t += n.mono[c] * m.mono[p[c]];
-            for (auto i : bi_of[c]) if (!has(n.bi[i], other)) t += cost(n.bi[i], p);
-            for (auto i : skip_of[c]) if (!has(n.skip[i], other)) t += skip_cost(n.skip[i], p);
-            for (auto i : tri_of[c]) if (!has(n.tri[i], other)) t += cost(n.tri[i], p);
+            auto& l = of[c];
+            d += n.mono[c] * (m.mono[p[c]] - m.mono[old(c)]);
+            for (auto& g : l.bi)
+                if (!has(g, other)) d += g.f * (bi(p[g.a], p[g.b]) - bi(old(g.a), old(g.b)));
+            for (auto& g : l.skip)
+                if (!has(g, other)) d += g.f * (skip(p[g.a], p[g.b]) - skip(old(g.a), old(g.b)));
+            for (auto& g : l.tri)
+                if (!has(g, other)) d += g.f * (tri(p[g.a], p[g.b], p[g.c]) - tri(old(g.a), old(g.b), old(g.c)));
         }
-        return t;
+        return d;
     }
+
+private:
+    struct Lists {
+        std::vector<Gram2> bi, skip;
+        std::vector<Gram3> tri;
+    };
+    std::vector<Lists> of;  // n-grams containing each character
 
     static bool has(const Gram2& g, int c) { return g.a == c || g.b == c; }
     static bool has(const Gram3& g, int c) { return g.a == c || g.b == c || g.c == c; }
-
-    static void index(std::vector<std::vector<uint32_t>>& of, uint32_t i, std::initializer_list<uint8_t> cs) {
-        int prev[3] = {-1, -1, -1}, k = 0;
-        for (int c : cs) {
-            if (c != prev[0] && c != prev[1]) of[c].push_back(i);
-            prev[k++] = c;
-        }
+    static std::vector<int> distinct(const Gram2& g) { return g.a == g.b ? std::vector<int>{g.a} : std::vector<int>{g.a, g.b}; }
+    static std::vector<int> distinct(const Gram3& g) {
+        std::vector<int> v{g.a};
+        if (g.b != g.a) v.push_back(g.b);
+        if (g.c != g.a && g.c != g.b) v.push_back(g.c);
+        return v;
     }
 };
+
+// Keeps the most frequent trigrams that together make up `coverage` of all trigram occurrences.
+inline void prune_trigrams(Ngrams& n, double coverage) {
+    std::sort(n.tri.begin(), n.tri.end(), [](auto& a, auto& b) { return a.f > b.f; });
+    double total = 0, kept = 0;
+    for (auto& g : n.tri) total += g.f;
+    size_t k = 0;
+    while (k < n.tri.size() && kept < coverage * total * (1 - 1e-12)) kept += n.tri[k++].f;
+    n.tri.resize(k);
+}
 
 inline bool placeable(const Model& m, int c) {
     if (m.pinned[c] >= 0) return true;

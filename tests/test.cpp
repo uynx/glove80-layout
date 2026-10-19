@@ -40,6 +40,16 @@ static void unknown_byte_breaks_context() {
     assert(n.skip.empty() && n.tri.empty());
 }
 
+static void pruning_keeps_most_frequent_trigrams() {
+    // trigrams: aaa x3, aab x1, aba x1 out of 5
+    Ngrams n = count("aaaaaba");
+    prune_trigrams(n, 0.6);
+    assert(n.tri.size() == 1 && near(find3(n.tri, 'a', 'a', 'a'), 3.0 / 7));
+    n = count("aaaaaba");
+    prune_trigrams(n, 0.61);
+    assert(n.tri.size() == 2);
+}
+
 static Model toy(int n) {
     Model m;
     m.nslots = m.nphys = n;
@@ -126,6 +136,7 @@ static void anneal_finds_brute_force_optimum() {
 int main() {
     counts_tiny_text();
     unknown_byte_breaks_context();
+    pruning_keeps_most_frequent_trigrams();
     toy_score_matches_hand_computation();
     swap_delta_matches_full_rescore();
     anneal_finds_brute_force_optimum();
