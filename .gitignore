@@ -7,3 +7,4 @@ build/
 corpus/raw/
 corpus/private/
 corpus/*.txt
+runs/

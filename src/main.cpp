@@ -16,23 +16,21 @@ using namespace kl;
 struct Weights {
     double effort = 1, sfb = 4, sfs = 1.5, scissor = 2, lsb = 1;
     double inroll = -0.6, outroll = -0.3, roll3 = -0.3, redirect = 1.5, bad_redirect = 1.5;
-    double layer_switch = 1, thumb_conflict = 2, hold_same_hand = 0.3, thumb_sfb = 2;
-    double sym_hand = 1;
+    double layer_switch = 1, thumb_sfb = 2;
 
     std::map<std::string, double*> table() {
         return {{"effort", &effort}, {"sfb", &sfb}, {"sfs", &sfs}, {"scissor", &scissor},
                 {"lsb", &lsb}, {"inroll", &inroll}, {"outroll", &outroll}, {"roll3", &roll3},
                 {"redirect", &redirect}, {"bad_redirect", &bad_redirect},
-                {"layer_switch", &layer_switch}, {"thumb_conflict", &thumb_conflict},
-                {"hold_same_hand", &hold_same_hand}, {"thumb_sfb", &thumb_sfb},
-                {"sym_hand", &sym_hand}};
+                {"layer_switch", &layer_switch}, {"thumb_sfb", &thumb_sfb}};
     }
 };
 
 // Physical keys: 2 hands x 4 rows (number, top, home, bottom) x 6 columns
 // (outer pinky .. inner index), then 2 x 6 thumb keys.
-constexpr int NP = 60, LAYERS = 3;
-const char* LAYER_NAME[LAYERS] = {"base", "sym", "num"};
+// Both thumbs hold the same symbol layer, so the free thumb holds it and no thumb conflict is modelled.
+constexpr int NP = 60, LAYERS = 2;
+const char* LAYER_NAME[LAYERS] = {"base", "sym"};
 const double EFFORT[4][6] = {
     {5.0, 4.0, 3.0, 2.8, 3.0, 4.0},
     {3.0, 2.0, 1.5, 1.3, 1.4, 2.2},
@@ -50,18 +48,27 @@ int finger(int p) { return is_thumb(p) ? 4 : col_of(p) <= 1 ? 0 : std::min(col_o
 double dist(int a, int b) { return std::hypot(row_of(a) - row_of(b), col_of(a) - col_of(b)); }
 
 const int TAB = key(0, 1, 0), SPACE = thumb_key(1, 5), ENTER = thumb_key(1, 4);
-// Numpad rows read 789 / 456 / 123 left to right on either hand, with 0 under the pinky.
-std::vector<std::pair<char, int>> numpad(int hand) {
-    std::vector<std::pair<char, int>> out{{'0', key(hand, 2, 1)}};
-    const char* rows[] = {"789", "456", "123"};
-    for (int r = 0; r < 3; r++)
-        for (int i = 0; i < 3; i++) out.push_back({rows[r][i], key(hand, r + 1, hand ? 4 - i : 2 + i)});
+// Where the digits sit on the symbol layer: "home" (12345 | 67890 on the home rows),
+// "numpad-left" / "numpad-right" (789/456/123, 0 under the pinky), or "free" (optimized).
+std::vector<std::pair<char, int>> digit_keys(const std::string& mode) {
+    std::vector<std::pair<char, int>> out;
+    if (mode == "home") {
+        for (int i = 0; i < 5; i++) out.push_back({char('1' + i), key(0, 2, 1 + i)});
+        for (int i = 0; i < 5; i++) out.push_back({"67890"[i], key(1, 2, 5 - i)});
+    } else if (mode == "numpad-left" || mode == "numpad-right") {
+        int hand = mode == "numpad-right";
+        out.push_back({'0', key(hand, 2, 1)});
+        const char* rows[] = {"789", "456", "123"};
+        for (int r = 0; r < 3; r++)
+            for (int i = 0; i < 3; i++) out.push_back({rows[r][i], key(hand, r + 1, hand ? 4 - i : 2 + i)});
+    } else if (mode != "free") {
+        throw std::runtime_error("unknown digit mode " + mode);
+    }
     return out;
 }
 
 struct Geo {
     const Weights& w;
-    int layer_hand(int l) const { return l == 1 ? int(w.sym_hand) : 1 - int(w.sym_hand); }
 
     bool sfb(int a, int b) const { return a != b && !is_thumb(a) && !is_thumb(b) && hand_of(a) == hand_of(b) && finger(a) == finger(b); }
     bool same_hand_pair(int a, int b) const {
@@ -91,21 +98,10 @@ struct Geo {
         return c;
     }
 
-    int switches(int la, int lb) const { return la == lb ? 0 : (la > 0) + (lb > 0); }
-    // Times one thumb must release a key and press another between a and b.
-    int conflicts(int la, int a, int lb, int b) const {
-        if (la == lb) return 0;
-        return (la > 0 && is_thumb(b) && hand_of(b) == layer_hand(la)) +
-               (lb > 0 && is_thumb(a) && hand_of(a) == layer_hand(lb)) +
-               (la > 0 && lb > 0 && layer_hand(la) == layer_hand(lb));
-    }
-
-    double bigram(int la, int a, int lb, int b) const {
-        return rel(a, b) + w.layer_switch * switches(la, lb) + w.thumb_conflict * conflicts(la, a, lb, b);
-    }
+    double bigram(int la, int a, int lb, int b) const { return rel(a, b) + (la != lb ? w.layer_switch : 0); }
 };
 
-Model build_model(const Weights& w) {
+Model build_model(const Weights& w, const std::string& digits, bool digits_on_base) {
     Geo g{w};
     const int N = ALPHA.size(), S = LAYERS * NP;
     Model m;
@@ -120,9 +116,7 @@ Model build_model(const Weights& w) {
 
     for (int s = 0; s < S; s++) {
         int l = s / NP, p = s % NP;
-        if (!is_thumb(p))
-            m.mono[s] = w.effort * EFFORT[row_of(p)][col_of(p)] +
-                        (l > 0 && hand_of(p) == g.layer_hand(l) ? w.hold_same_hand : 0);
+        if (!is_thumb(p)) m.mono[s] = w.effort * EFFORT[row_of(p)][col_of(p)];
         for (int t = 0; t < S; t++) m.bi[s * S + t] = g.bigram(l, p, t / NP, t % NP);
     }
     for (int a = 0; a < NP; a++)
@@ -136,14 +130,15 @@ Model build_model(const Weights& w) {
 
     m.pinned[char_index(' ')] = SPACE;
     m.pinned[char_index('\n')] = ENTER;
-    for (auto [d, p] : numpad(1 - g.layer_hand(2))) m.pinned[char_index(d)] = 2 * NP + p;
+    for (auto [d, p] : digit_keys(digits)) m.pinned[char_index(d)] = NP + p;
     for (int c = 0; c < N; c++) {
         if (m.pinned[c] >= 0) continue;
-        bool letter = ALPHA[c] >= 'a' && ALPHA[c] <= 'z';
+        bool letter = ALPHA[c] >= 'a' && ALPHA[c] <= 'z', digit = ALPHA[c] >= '0' && ALPHA[c] <= '9';
         for (int s = 0; s < S; s++) {
             int l = s / NP, p = s % NP;
             bool taken = std::find(m.pinned.begin(), m.pinned.end(), s) != m.pinned.end();
-            m.allowed[c * S + s] = !is_thumb(p) && !(l == 0 && p == TAB) && !(letter && l > 0) && !taken;
+            m.allowed[c * S + s] = !is_thumb(p) && !(l == 0 && p == TAB) && !(letter && l > 0) &&
+                                   !(digit && l == 0 && !digits_on_base) && !taken;
         }
     }
     return m;
@@ -206,7 +201,7 @@ void print_stats(const Scorer& sc, const Weights& w, const Layout& L) {
         if (hand_of(P(c)) == 0) left += n.mono[c];
         fingers[hand_of(P(c)) * 5 + finger(P(c))] += n.mono[c];
     }
-    double sfb = 0, in = 0, out = 0, sc_ = 0, lsb = 0, alt = 0, sw = 0, tc = 0;
+    double sfb = 0, in = 0, out = 0, sc_ = 0, lsb = 0, alt = 0, presses = 0;
     for (auto& b : n.bi) {
         int a = P(b.a), c = P(b.b);
         if (g.sfb(a, c)) sfb += b.f;
@@ -214,8 +209,7 @@ void print_stats(const Scorer& sc, const Weights& w, const Layout& L) {
         if (g.scissor(a, c)) sc_ += b.f;
         if (g.lsb(a, c)) lsb += b.f;
         if (!is_thumb(a) && !is_thumb(c) && hand_of(a) != hand_of(c)) alt += b.f;
-        sw += b.f * g.switches(Lr(b.a), Lr(b.b));
-        tc += b.f * g.conflicts(Lr(b.a), a, Lr(b.b), c);
+        if (Lr(b.a) == 0 && Lr(b.b) == 1) presses += b.f;
     }
     double sfs = 0, roll3 = 0, red = 0, bad = 0;
     for (auto& s : n.skip)
@@ -232,7 +226,7 @@ void print_stats(const Scorer& sc, const Weights& w, const Layout& L) {
     std::printf("sfb %.2f%%  sfs %.2f%%  scissor %.2f%%  lsb %.2f%%\n", pct(sfb), pct(sfs), pct(sc_), pct(lsb));
     std::printf("inroll %.2f%%  outroll %.2f%%  alternate %.2f%%\n", pct(in), pct(out), pct(alt));
     std::printf("roll3 %.2f%%  redirect %.2f%%  bad redirect %.2f%%\n", pct(roll3), pct(red), pct(bad));
-    std::printf("layer key presses %.2f per 100 chars   thumb conflicts %.2f%%\n", pct(sw), pct(tc));
+    std::printf("layer key presses %.2f per 100 chars\n", pct(presses));
     std::printf("finger load (L pinky..index, R index..pinky):");
     for (int f : {0, 1, 2, 3, 8, 7, 6, 5}) std::printf(" %.1f", pct(fingers[f] / keys));
     std::printf("\n");
@@ -268,7 +262,8 @@ std::string slurp(const std::string& path) {
 
 int usage() {
     std::fprintf(stderr,
-                 "usage: kl opt CORPUS [-t threads] [-r restarts] [-n iters] [-s seed] [-c trigram coverage] [-w name=value]...\n"
+                 "usage: kl opt CORPUS [-t threads] [-r restarts] [-n iters] [-s seed] [-c trigram coverage]\n"
+                 "              [-d home|numpad-left|numpad-right|free] [-w name=value]...\n"
                  "       kl score CORPUS LAYOUT [-w name=value]...\n");
     return 2;
 }
@@ -278,7 +273,8 @@ int main(int argc, char** argv) try {
     std::string cmd = argv[1];
     std::vector<std::string> pos;
     int threads = std::thread::hardware_concurrency(), restarts = 0;
-    double coverage = 1;
+    double coverage = 0.98;
+    std::string digits = "home";
     long iters = 2'000'000;
     uint64_t seed = 1;
     Weights w;
@@ -291,6 +287,7 @@ int main(int argc, char** argv) try {
         else if (a == "-n") iters = std::stol(val());
         else if (a == "-s") seed = std::stoull(val());
         else if (a == "-c") coverage = std::stod(val());
+        else if (a == "-d") digits = val();
         else if (a == "-w") {
             auto kv = val();
             auto eq = kv.find('=');
@@ -299,23 +296,24 @@ int main(int argc, char** argv) try {
         } else pos.push_back(a);
     }
     if (restarts == 0) restarts = threads;
-    Model m = build_model(w);
-    Ngrams grams = count(slurp(pos.at(0)));
+    bool scoring = cmd == "score";
+    Model m = build_model(w, scoring ? "free" : digits, scoring);
+    Ngrams full = count(slurp(pos.at(0))), grams = full;
     prune_trigrams(grams, coverage);
-    Scorer sc(m, std::move(grams));
+    Scorer sc(m, std::move(grams)), exact(m, std::move(full));
     if (cmd == "opt" && pos.size() == 1) {
         auto t0 = std::chrono::steady_clock::now();
         Result r = optimize(sc, threads, restarts, iters, seed);
         double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
         std::fprintf(stderr, "%.1f s, %.2fM swaps/s\n", secs, restarts * double(iters) / secs / 1e6);
         print_layout(r.layout, std::cout);
-        print_stats(sc, w, r.layout);
+        print_stats(exact, w, r.layout);
     } else if (cmd == "score" && pos.size() == 2) {
         std::ifstream f(pos[1]);
         if (!f) throw std::runtime_error("cannot read " + pos[1]);
         Layout L = parse_layout(m, f);
         print_layout(L, std::cout);
-        print_stats(sc, w, L);
+        print_stats(exact, w, L);
     } else {
         return usage();
     }
