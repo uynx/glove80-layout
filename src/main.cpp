@@ -17,7 +17,7 @@ struct Weights {
     double effort = 1, sfb = 4, sfs = 1.5, scissor = 2, lsb = 1;
     double inroll = -0.6, outroll = -0.3, roll3 = -0.3, redirect = 1.5, bad_redirect = 1.5;
     double layer_switch = 1, thumb_conflict = 2, hold_same_hand = 0.3, thumb_sfb = 2;
-    double sym_hand = 1, num_hand = 0;
+    double sym_hand = 1;
 
     std::map<std::string, double*> table() {
         return {{"effort", &effort}, {"sfb", &sfb}, {"sfs", &sfs}, {"scissor", &scissor},
@@ -25,7 +25,7 @@ struct Weights {
                 {"redirect", &redirect}, {"bad_redirect", &bad_redirect},
                 {"layer_switch", &layer_switch}, {"thumb_conflict", &thumb_conflict},
                 {"hold_same_hand", &hold_same_hand}, {"thumb_sfb", &thumb_sfb},
-                {"sym_hand", &sym_hand}, {"num_hand", &num_hand}};
+                {"sym_hand", &sym_hand}};
     }
 };
 
@@ -50,16 +50,18 @@ int finger(int p) { return is_thumb(p) ? 4 : col_of(p) <= 1 ? 0 : std::min(col_o
 double dist(int a, int b) { return std::hypot(row_of(a) - row_of(b), col_of(a) - col_of(b)); }
 
 const int TAB = key(0, 1, 0), SPACE = thumb_key(1, 5), ENTER = thumb_key(1, 4);
-const std::pair<char, int> DIGITS[] = {
-    {'7', key(1, 1, 4)}, {'8', key(1, 1, 3)}, {'9', key(1, 1, 2)},
-    {'4', key(1, 2, 4)}, {'5', key(1, 2, 3)}, {'6', key(1, 2, 2)},
-    {'1', key(1, 3, 4)}, {'2', key(1, 3, 3)}, {'3', key(1, 3, 2)},
-    {'0', key(1, 2, 1)},
-};
+// Numpad rows read 789 / 456 / 123 left to right on either hand, with 0 under the pinky.
+std::vector<std::pair<char, int>> numpad(int hand) {
+    std::vector<std::pair<char, int>> out{{'0', key(hand, 2, 1)}};
+    const char* rows[] = {"789", "456", "123"};
+    for (int r = 0; r < 3; r++)
+        for (int i = 0; i < 3; i++) out.push_back({rows[r][i], key(hand, r + 1, hand ? 4 - i : 2 + i)});
+    return out;
+}
 
 struct Geo {
     const Weights& w;
-    int layer_hand(int l) const { return int(l == 1 ? w.sym_hand : w.num_hand); }
+    int layer_hand(int l) const { return l == 1 ? int(w.sym_hand) : 1 - int(w.sym_hand); }
 
     bool sfb(int a, int b) const { return a != b && !is_thumb(a) && !is_thumb(b) && hand_of(a) == hand_of(b) && finger(a) == finger(b); }
     bool same_hand_pair(int a, int b) const {
@@ -134,7 +136,7 @@ Model build_model(const Weights& w) {
 
     m.pinned[char_index(' ')] = SPACE;
     m.pinned[char_index('\n')] = ENTER;
-    for (auto [d, p] : DIGITS) m.pinned[char_index(d)] = 2 * NP + p;
+    for (auto [d, p] : numpad(1 - g.layer_hand(2))) m.pinned[char_index(d)] = 2 * NP + p;
     for (int c = 0; c < N; c++) {
         if (m.pinned[c] >= 0) continue;
         bool letter = ALPHA[c] >= 'a' && ALPHA[c] <= 'z';
