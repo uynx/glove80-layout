@@ -239,6 +239,15 @@ Result anneal(const Scorer& sc, Rng& rng, long iters) {
             sc.swap(L, a, b);
         }
     }
+    for (bool improved = true; improved;) {
+        improved = false;
+        for (size_t i = 0; i < slots.size(); i++)
+            for (size_t j = i + 1; j < slots.size(); j++) {
+                if (!valid_swap(m, best, slots[i], slots[j])) continue;
+                if (sc.swap(best, slots[i], slots[j]) < -1e-12) improved = true;
+                else sc.swap(best, slots[i], slots[j]);
+            }
+    }
     return {best, sc.score(best.pos)};
 }
 
