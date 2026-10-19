@@ -1,0 +1,9 @@
+.direnv
+.devenv
+result
+.env
+.env.local
+build/
+corpus/raw/
+corpus/private/
+corpus/*.txt
