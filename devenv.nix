@@ -6,5 +6,6 @@
     pkgs.gnumake
     pkgs.poppler-utils
     pkgs.python3
+    pkgs.dash
   ];
 }
