@@ -263,7 +263,7 @@ std::string slurp(const std::string& path) {
 int usage() {
     std::fprintf(stderr,
                  "usage: kl opt CORPUS [-t threads] [-r restarts] [-n iters] [-s seed] [-c trigram coverage]\n"
-                 "              [-d home|numpad-left|numpad-right|free] [-w name=value]...\n"
+                 "              [-d free|home|numpad-left|numpad-right] [-w name=value]...\n"
                  "       kl score CORPUS LAYOUT [-w name=value]...\n");
     return 2;
 }
@@ -274,7 +274,7 @@ int main(int argc, char** argv) try {
     std::vector<std::string> pos;
     int threads = std::thread::hardware_concurrency(), restarts = 0;
     double coverage = 0.98;
-    std::string digits = "home";
+    std::string digits = "free";
     long iters = 2'000'000;
     uint64_t seed = 1;
     Weights w;
