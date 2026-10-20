@@ -30,4 +30,5 @@ assert drop_templates("\n".join([macro + "a", macro + "b"])) == f"{macro}a\n{mac
 
 assert clean_arxiv("the flux rises. see kolda, s. pokorski and n. polonsky, phys. rev. 80 (1998) 5263. it then falls.") == \
     "the flux rises. it then falls."
+assert clean_arxiv("the coefficient of @xmath5 will shift. it then falls. as shown in @xcite, it rises.") == "it then falls."
 print("ok")

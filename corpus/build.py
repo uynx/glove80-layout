@@ -162,7 +162,7 @@ ARXIV_DEBRIS = re.compile(r"[\\{}&_^$@*]|\?\?\?|\(\s*[,;]?\s*\)|\[\s*\]|\[[a-z0-
 
 
 def clean_arxiv(s):
-    s = re.sub(r"@x(math|cite)\d*", "", s.replace("\n", " "))
+    s = re.sub(r"@x(math|cite)\d*", "@", s.replace("\n", " "))
     s = re.sub(r" +", " ", s)
     s = re.sub(r"(\w) - (\w)", r"\1-\2", s)
     s = re.sub(r" ([.,;:!?)\]])", r"\1", s)
@@ -350,7 +350,8 @@ def mine():
             texts.append(subprocess.run(["pdftotext", "-layout", str(p), "-"], check=True,
                                         capture_output=True, text=True).stdout)
         elif p.suffix == ".txt":
-            texts.append(p.read_text())
+            # Only the quoted passages are Brandon's; the note around them is agent-written.
+            texts.append("\n".join(l[1:].strip() for l in p.read_text().splitlines() if l.startswith(">")))
     return [clean_markdown(unwrap(t.replace("\f", "\n"))) for t in texts]
 
 
