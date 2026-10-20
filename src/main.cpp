@@ -119,7 +119,7 @@ struct Geo {
     }
 };
 
-Model build_model(const Weights& w, const std::string& digits, bool digits_on_base) {
+Model build_model(const Weights& w, const std::string& digits, bool digits_on_base, const std::vector<std::pair<int, int>>& fixed = {}) {
     Geo g{w};
     const int N = ALPHA.size(), S = LAYERS * NP;
     Model m;
@@ -145,12 +145,14 @@ Model build_model(const Weights& w, const std::string& digits, bool digits_on_ba
             for (int u = 0; u < S; u++) {
                 int k = g.trigram(s % NP, t % NP, u % NP);
                 bool one_layer = s / NP == t / NP && t / NP == u / NP;
-                m.tri[(size_t(s) * S + t) * S + u] = k == 1 ? (one_layer ? w.roll3 : 0) : k == 2 ? w.redirect : k == 3 ? w.redirect + w.bad_redirect : 0;
+                float v = k == 1 ? (one_layer ? w.roll3 : 0) : k == 2 ? w.redirect : k == 3 ? w.redirect + w.bad_redirect : 0;
+                m.tri[(size_t(s) * S + t) * S + u] = v;
             }
 
     m.pinned[char_index(' ')] = SPACE;
     m.pinned[char_index('\n')] = ENTER;
     for (auto [d, p] : digit_keys(digits)) m.pinned[char_index(d)] = NP + p;
+    for (auto [c, s] : fixed) m.pinned[c] = s;
     for (int c = 0; c < N; c++) {
         if (m.pinned[c] >= 0) continue;
         bool letter = ALPHA[c] >= 'a' && ALPHA[c] <= 'z', digit = ALPHA[c] >= '0' && ALPHA[c] <= '9';
@@ -182,7 +184,7 @@ void print_layout(const Layout& L, std::ostream& out) {
     }
 }
 
-Layout parse_layout(const Model& m, std::istream& in) {
+Layout parse_layout(const Model& m, std::istream& in, bool partial = false) {
     Layout L{std::vector<int>(ALPHA.size(), -1), std::vector<int>(m.nslots, -1)};
     for (size_t c = 0; c < ALPHA.size(); c++)
         if (m.pinned[c] >= 0) L.pos[c] = m.pinned[c], L.occ[m.pinned[c]] = c;
@@ -206,7 +208,7 @@ Layout parse_layout(const Model& m, std::istream& in) {
         r++;
     }
     for (size_t c = 0; c < ALPHA.size(); c++)
-        if (L.pos[c] < 0 && placeable(m, c)) throw std::runtime_error("layout is missing '" + std::string(1, ALPHA[c]) + "'");
+        if (!partial && L.pos[c] < 0 && placeable(m, c)) throw std::runtime_error("layout is missing '" + std::string(1, ALPHA[c]) + "'");
     return L;
 }
 
@@ -287,7 +289,7 @@ std::string slurp(const std::string& path) {
 int usage() {
     std::fprintf(stderr,
                  "usage: kl opt CORPUS [-t threads] [-r restarts] [-n iters] [-s seed] [-c trigram coverage]\n"
-                 "              [-d free|home|numpad-left|numpad-right] [-w name=value]...\n"
+                 "              [-d free|home|numpad-left|numpad-right] [-f LAYOUT (keep its letters)] [-w name=value]...\n"
                  "       kl score CORPUS LAYOUT [-w name=value]...\n");
     return 2;
 }
@@ -298,7 +300,7 @@ int main(int argc, char** argv) try {
     std::vector<std::string> pos;
     int threads = std::thread::hardware_concurrency(), restarts = 0;
     double coverage = 0.98;
-    std::string digits = "free";
+    std::string digits = "free", fix;
     long iters = 2'000'000;
     uint64_t seed = 1;
     Weights w;
@@ -312,6 +314,7 @@ int main(int argc, char** argv) try {
         else if (a == "-s") seed = std::stoull(val());
         else if (a == "-c") coverage = std::stod(val());
         else if (a == "-d") digits = val();
+        else if (a == "-f") fix = val();
         else if (a == "-w") {
             auto kv = val();
             auto eq = kv.find('=');
@@ -321,7 +324,15 @@ int main(int argc, char** argv) try {
     }
     if (restarts == 0) restarts = threads;
     bool scoring = cmd == "score";
-    Model m = build_model(w, scoring ? "free" : digits, scoring);
+    std::vector<std::pair<int, int>> fixed;
+    if (!fix.empty()) {
+        std::ifstream f(fix);
+        if (!f) throw std::runtime_error("cannot read " + fix);
+        Layout F = parse_layout(build_model(w, digits, false), f, true);
+        for (int c = char_index('a'); c <= char_index('z'); c++)
+            if (F.pos[c] >= 0) fixed.push_back({c, F.pos[c]});
+    }
+    Model m = build_model(w, scoring ? "free" : digits, scoring, fixed);
     Ngrams full = count(slurp(pos.at(0))), grams = full;
     prune_trigrams(grams, coverage);
     Scorer sc(m, std::move(grams)), exact(m, std::move(full));
