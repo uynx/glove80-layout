@@ -150,7 +150,8 @@ def clean_reddit(s):
 
 
 def clean_subtitles(s):
-    s = re.sub(r"^-+ ?", "", tidy(s), flags=re.M)
+    s = re.sub(r"\([^)\n]*\)|\[[^\]\n]*\]", "", s)
+    s = re.sub(r"^(-+|>>) *(\w+: *)?|^[A-Z][A-Z .']*: *", "", tidy(s), flags=re.M)
     # OCR reads a capital I as l.
     return re.sub(r"(?<![\w'])l(?=['\s]|$)", "I", s, flags=re.M)
 
