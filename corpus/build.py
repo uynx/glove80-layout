@@ -256,8 +256,52 @@ def gh_files(repo, tag, paths, exts, auth):
 COMMENT = re.compile(r"^(//|/\*|\*|#(\s|!|$)|--|\(\*|\{-|;|%)")
 
 
+DOC_LINE = re.compile(r"^(///|//!|-- [|^])")
+DOC_BLOCKS = [(re.compile(r"^/\*\*"), "*/"), (re.compile(r"^\(\*\*"), "*)"), (re.compile(r"^\{-\|"), "-}")]
+TRIPLE = re.compile(r'"""|\'\'\'')
+DOCSTRING = re.compile(r'^[rb]?("""|\'\'\')')
+
+
+# API documentation is written for a library's users and is rare in personal code; ordinary comments stay.
+def drop_docs(lines):
+    out, close, quote, in_doc = [], None, None, False
+    for l in lines:
+        if close:
+            if close in l:
+                close = None
+            continue
+        if quote:
+            if len(re.findall(quote, l)) % 2:
+                quote, was_doc, in_doc = None, in_doc, False
+                if was_doc:
+                    continue
+            elif in_doc:
+                continue
+            out.append(l)
+            continue
+        if DOC_LINE.match(l):
+            continue
+        m = DOCSTRING.match(l)
+        if m:
+            if len(re.findall(m.group(1), l)) % 2:
+                quote, in_doc = m.group(1), True
+            continue
+        block = next(((p, e) for p, e in DOC_BLOCKS if p.match(l)), None)
+        if block:
+            if block[1] not in l[3:]:
+                close = block[1]
+            continue
+        out.append(l)
+        # A triple-quoted string that is not a docstring is kept, but its closing line must not read as a new docstring.
+        t = TRIPLE.findall(l)
+        for q in ('"""', "'''"):
+            if t.count(q) % 2:
+                quote, in_doc = q, False
+    return out
+
+
 def clean_code(s):
-    lines = [re.sub(r"(?<=\S) {2,}", " ", l.strip()) for l in ascii_only(s).splitlines()]
+    lines = drop_docs([re.sub(r"(?<=\S) {2,}", " ", l.strip()) for l in ascii_only(s).splitlines()])
     lines = [l for l in lines if l and len(l) < 300 and not JUNK.search(l) and sum(c.isdigit() for c in l) * 2 < len(l)]
     i = 0
     while i < len(lines) and COMMENT.match(lines[i]):

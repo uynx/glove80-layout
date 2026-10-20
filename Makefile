@@ -10,6 +10,7 @@ test: build/test
 	./build/test
 	python3 tests/test_regret.py
 	python3 tests/test_zmk.py
+	python3 tests/test_corpus.py
 
 build:
 	mkdir -p build
