@@ -79,7 +79,7 @@ CODE = {
 
 FOLD = str.maketrans({
     "‘": "'", "’": "'", "“": '"', "”": '"', "–": "-",
-    "—": "-", "…": "...", " ": " ", "\t": " ",
+    "—": "-", "…": "...", " ": " ", "\t": " ", "\r": "",
 })
 
 
@@ -116,8 +116,8 @@ def unwrap(s):
     return re.sub(r"(?<!\n)\n(?!\n)", " ", s)
 
 
-# Runs of six identical symbols or digits (banners, rules, tables) and long hex strings are never typed.
-JUNK = re.compile(r"([^A-Za-z.\s])\1{5,}|\b(0x)?[0-9A-Fa-f]{16,}\b")
+# Runs of six identical symbols or digits (banners, rules, tables), long hex strings and byte tables are never typed.
+JUNK = re.compile(r"([^A-Za-z.\s])\1{5,}|\b(0x)?[0-9A-Fa-f]{16,}\b|(0x[0-9A-Fa-f]+\W+){4,}")
 
 
 def keep_lines(s, bad):
@@ -141,16 +141,32 @@ def drop_templates(s):
     return "\n".join(l for l in lines if len(l) < 40 or openings[l[:45]] < 3)
 
 
+URL = r"https?://[^\s()]*(?:\([^\s()]*\)[^\s()]*)*|www\.[^\s()]+"
+
+
 def clean_markdown(s):
     s = ascii_only(html.unescape(html.unescape(s)))
-    s = re.sub(r"\[([^\]\n]*)\]\([^)\s]*\)?", r"\1", s)
-    s = re.sub(r"https?://\S+|www\.\S+", "", s)
+    s = re.sub(r"\[([^\]\n]*)\]\((?:[^()\s]|\([^()\s]*\))*\)?", r"\1", s)
+    s = re.sub(URL, "", s)
+    s = re.sub(r"\(\s*\)", "", s)
     s = re.sub(r"</?[a-zA-Z][^<>\n]*>", "", s)
-    s = re.sub(r"\\([^\w\s])", r"\1", s)
-    s = re.sub(r"\*{2,}|(?<!\w)_+|_+(?!\w)", "", s)
+    s = re.sub(r"\^\(([^)\n]*)\)", r"\1", s)
+    # Escapes go before emphasis, or the underscore rule eats the _ in \_ and strands the backslash.
+    s = re.sub(r"\\([^\w\s]|_)", lambda m: "\0" if m.group(1) == "_" else m.group(1), s)
+    s = re.sub(r"\*{2,}|~~|(?<!\S)\^(?=\w)|(?<!\w)_+|_+(?!\w)", "", s).replace("\0", "_")
     s = re.sub(r"^#+ +", "", s, flags=re.M)
     s = keep_lines(s, lambda l: l.startswith(">") or "I am a bot" in l or l.count("|") >= 2 or JUNK.search(l))
     return tidy(s)
+
+
+REF_HEAD = re.compile(r"(?im)^\s*(references?|works cited|bibliography|reference list|works consulted)\s*:?\s*$")
+REF_ENTRY = re.compile(r"\(\d{4}[a-z]?\)\.|\. Web\.|Retrieved from|\bdoi:|\bVol\.|\bpp\. \d|, \d+\(\d+\), \d+")
+
+
+# Reference lists come from citation generators and are pasted, not typed.
+def clean_essay(s):
+    s = REF_HEAD.split(s)[0]
+    return tidy(re.sub(URL, "", keep_lines(s, REF_ENTRY.search)))
 
 
 def clean_reddit(s):
@@ -160,6 +176,9 @@ def clean_reddit(s):
 ARXIV_DEBRIS = re.compile(r"[\\{}&_^$@*]|\?\?\?|\(\s*[,;]?\s*\)|\[\s*\]|\[[a-z0-9]+\]|;;|\s[,.;:]|[,;:][.,]|\(\s*,"
                           r"|\(\d{4}\)\s*\d|\b(phys|astrophys|nucl|lett|proc|ibid|rev)\.|^\(?[a-z]\.$|(,| and) [a-z]\.$")
 
+ABBREV = ["fig", "figs", "eq", "eqs", "sec", "secs", "ref", "refs", "tab", "al", "e.g", "i.e", "vs", "cf", "no", "approx", "resp"]
+SENTENCE = re.compile(r"(?<=[.!?])" + "".join(rf"(?<!\b{re.escape(a)}\.)" for a in ABBREV) + r"\s+")
+
 
 def clean_arxiv(s):
     s = re.sub(r"@x(math|cite)\d*", "@", s.replace("\n", " "))
@@ -168,10 +187,10 @@ def clean_arxiv(s):
     s = re.sub(r" ([.,;:!?)\]])", r"\1", s)
     s = re.sub(r"([(\[]) ", r"\1", s)
     s = re.sub(r" (n't|'s|'re|'ve|'ll|'d|'m)\b", r"\1", s)
-    s = re.sub(r"\[[a-z]+\s*:[^\]]*\]", "", s)
+    s = re.sub(r"\[[a-z]+\s*:[^\]]*\]", "@", s)
     s = re.sub(r"\s*''", '"', re.sub(r"``\s*", '"', s))
-    # A sentence that lost its math to @xmath, or kept LaTeX, is debris; drop it whole.
-    return tidy(" ".join(x for x in re.split(r"(?<=[.!?])\s+", s) if not ARXIV_DEBRIS.search(x)))
+    # A sentence that lost its math or a reference to "@", or kept LaTeX, is debris; drop it whole.
+    return tidy(" ".join(x for x in SENTENCE.split(s) if not ARXIV_DEBRIS.search(x)))
 
 
 def hf(dataset, config, split, column, clean, limit, rng, page=100):
@@ -262,6 +281,7 @@ def gh_files(repo, tag, paths, exts, auth):
     return files
 
 
+BLOCK_OPEN = [("/*", "*/"), ("(*", "*)"), ("{-", "-}")]
 COMMENT = re.compile(r"^(//|/\*|\*|#(\s|!|$)|--|\(\*|\{-|;|%)")
 
 
@@ -313,7 +333,14 @@ def clean_code(s):
     lines = drop_docs([re.sub(r"(?<=\S) {2,}", " ", l.strip()) for l in ascii_only(s).splitlines()])
     lines = [l for l in lines if l and len(l) < 300 and not JUNK.search(l) and sum(c.isdigit() for c in l) * 2 < len(l)]
     i = 0
-    while i < len(lines) and COMMENT.match(lines[i]):
+    while i < len(lines):
+        block = next((e for p, e in BLOCK_OPEN if lines[i].startswith(p)), None)
+        if block and block not in lines[i][2:]:
+            i += 1
+            while i < len(lines) and block not in lines[i]:
+                i += 1
+        elif not COMMENT.match(lines[i]):
+            break
         i += 1
     return "\n".join(lines[i:])
 
@@ -361,7 +388,7 @@ def main():
         ("reddit", 0.40 * 0.6, reddit),
         ("chat", 0.40 * 0.4, chat),
         ("ivypanda", 0.24 * 0.9, lambda n, r: hf("qwedsacf/ivypanda-essays", "default", "train",
-                                                 "TEXT", tidy, n, r, page=20)),
+                                                 "TEXT", clean_essay, n, r, page=20)),
         ("paulgraham", 0.24 * 0.1, lambda n, r: hf("baber/paul_graham_essays", "default", "train",
                                                    "text", lambda s: clean_markdown(unwrap(s)), n, r, page=10)),
         ("arxiv", 0.16, lambda n, r: hf("ccdv/arxiv-summarization", "document", "train",
