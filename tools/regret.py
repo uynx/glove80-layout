@@ -11,7 +11,7 @@ from pathlib import Path
 
 # Must match the defaults in src/main.cpp and the list in tools/sweep.sh.
 DEFAULTS = {"effort": 1, "sfb": 4, "sfs": 1.5, "scissor": 2, "lsb": 1, "inroll": -0.6, "outroll": -0.3,
-            "roll3": -0.3, "redirect": 1.5, "bad_redirect": 1.5, "layer_switch": 1}
+            "roll3": -0.3, "redirect": 1.5, "bad_redirect": 1.5, "layer_switch": 1.5, "layer_boundary": 0.75}
 
 
 def worst_regret(scores):

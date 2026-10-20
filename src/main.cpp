@@ -16,13 +16,14 @@ using namespace kl;
 struct Weights {
     double effort = 1, sfb = 4, sfs = 1.5, scissor = 2, lsb = 1;
     double inroll = -0.6, outroll = -0.3, roll3 = -0.3, redirect = 1.5, bad_redirect = 1.5;
-    double layer_switch = 1, thumb_sfb = 2;
+    double layer_switch = 1.5, layer_boundary = 0.75, thumb_sfb = 2;
 
     std::map<std::string, double*> table() {
         return {{"effort", &effort}, {"sfb", &sfb}, {"sfs", &sfs}, {"scissor", &scissor},
                 {"lsb", &lsb}, {"inroll", &inroll}, {"outroll", &outroll}, {"roll3", &roll3},
                 {"redirect", &redirect}, {"bad_redirect", &bad_redirect},
-                {"layer_switch", &layer_switch}, {"thumb_sfb", &thumb_sfb}};
+                {"layer_switch", &layer_switch}, {"layer_boundary", &layer_boundary},
+                {"thumb_sfb", &thumb_sfb}};
     }
 };
 
@@ -98,7 +99,11 @@ struct Geo {
         return c;
     }
 
-    double bigram(int la, int a, int lb, int b) const { return rel(a, b) + (la != lb ? w.layer_switch : 0); }
+    // A layer change next to space or enter falls at a word boundary and disrupts less than one mid-word.
+    double bigram(int la, int a, int lb, int b) const {
+        if (la == lb) return rel(a, b);
+        return rel(a, b) + (is_thumb(a) || is_thumb(b) ? w.layer_boundary : w.layer_switch);
+    }
 };
 
 Model build_model(const Weights& w, const std::string& digits, bool digits_on_base) {

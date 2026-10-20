@@ -15,7 +15,7 @@ run() {
 }
 run base "$@"
 for kv in effort=1 sfb=4 sfs=1.5 scissor=2 lsb=1 inroll=-0.6 outroll=-0.3 roll3=-0.3 \
-          redirect=1.5 bad_redirect=1.5 layer_switch=1; do
+          redirect=1.5 bad_redirect=1.5 layer_switch=1.5 layer_boundary=0.75; do
     k=${kv%=*}
     v=${kv#*=}
     for f in 0.5 1.5; do
