@@ -116,7 +116,7 @@ def unwrap(s):
 
 
 # Runs of six identical symbols or digits (banners, rules, tables) and long hex strings are never typed.
-JUNK = re.compile(r"([^A-Za-z.\s])\1{5,}|\b[0-9A-Fa-f]{16,}\b")
+JUNK = re.compile(r"([^A-Za-z.\s])\1{5,}|\b(0x)?[0-9A-Fa-f]{16,}\b")
 
 
 def keep_lines(s, bad):
