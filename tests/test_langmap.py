@@ -39,15 +39,11 @@ assert langmap(QWERTY) == ""
 colemak = pairs(langmap((ROOT / "layouts/colemak-dh.txt").read_text()))
 assert {"fe", "FE", "pr", "PR"} <= colemak
 
-assert pairs(langmap(swap(".", "v"))) == {".v", ">V", "v.", "V>"}
-assert pairs(langmap(swap("s", ";"))) == {"s;", "S:", ";s", ":S"}
+assert pairs(langmap(swap(".", "v"))) == {".v", "v.", "V>"}
+assert pairs(langmap(swap("s", ";"))) == {"s;", "S:", ";s"}
 assert "s\\;" in langmap(swap("s", ";"))
 
-# "?" sends Shift+/ already, so Shift adds nothing and the key keeps q, not Q.
+# Shift only capitalizes, so a symbol key gets no shifted pair and the QWERTY capital under it has no key.
 assert pairs(langmap(place({"q": "?", "/": "q"}))) == {"?q", "q/", "Q?"}
-
-# A character two keys can send goes to the one that reaches a letter.
-text = swap("g", ",").replace("· z x", "< z x", 1)
-p = pairs(langmap(text))
-assert "<G" in p and "<`" not in p
+assert pairs(langmap(swap("g", ",").replace("· z x", "< z x", 1))) == {",g", "g,", "G<", "<`"}
 print("ok")
