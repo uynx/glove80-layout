@@ -149,15 +149,6 @@ def clean_reddit(s):
     return "" if s in ("[deleted]", "[removed]") else clean_markdown(s)
 
 
-def clean_subtitles(s):
-    s = re.sub(r"\([^)\n]*\)|\[[^\]\n]*\]", "", s)
-    s = re.sub(r"^(-+|>>) *(\w+: *)?|^[A-Z][A-Z .']*: *", "", tidy(s), flags=re.M)
-    # A subtitle line break mid-sentence is a display break, not a typed Enter.
-    s = re.sub(r"(?<![.!?\"'])\n", " ", s)
-    # OCR reads a capital I as l.
-    return re.sub(r"(?<![\w'])l(?=['\s]|$)", "I", s, flags=re.M)
-
-
 ARXIV_DEBRIS = re.compile(r"[\\{}&_^$@*]|\?\?\?|\(\s*[,;]?\s*\)|\[\s*\]|\[[a-z0-9]+\]|;;|\s[,.;:]|[,;:][.,]|\(\s*,")
 
 
@@ -200,6 +191,25 @@ def hf(dataset, config, split, column, clean, limit, rng, page=100):
                     if d:
                         out.append(d)
                         size += len(d) + 1
+    return out
+
+
+def hf_rows(dataset, config, split, page=100):
+    base = f"{ROWS}?dataset={urllib.parse.quote(dataset)}&config={config}&split={split}"
+    total = json.loads(get(f"{base}&offset=0&length=1"))["num_rows_total"]
+    with ThreadPoolExecutor(8) as ex:
+        pages = ex.map(lambda o: json.loads(get(f"{base}&offset={o}&length={page}"))["rows"], range(0, total, page))
+        return [r["row"] for p in pages for r in p]
+
+
+def chat(limit, rng):
+    out = []
+    for split in ("train", "validation", "test"):
+        for r in hf_rows("ParlAI/blended_skill_talk", "default", split):
+            # Guided turns that started from a model suggestion, and ConvAI2's tokenized seed lines, were not typed as shown.
+            own = [m for m, s in zip(r["guided_messages"], r["guided_chosen_suggestions"]) if not s]
+            seeds = r["previous_utterance"] if r["context"] != "convai2" else []
+            out += [d for m in seeds + r["free_messages"] + own if (d := tidy(m))]
     return out
 
 
@@ -295,8 +305,7 @@ def main():
     rng = random.Random(0)
     english = [
         ("reddit", 0.40 * 0.6, reddit),
-        ("subtitles", 0.40 * 0.4, lambda n, r: hf("dim/opensubtitles_clean_v1", "default", "train",
-                                                  "text", clean_subtitles, n, r, page=20)),
+        ("chat", 0.40 * 0.4, chat),
         ("ivypanda", 0.24 * 0.9, lambda n, r: hf("qwedsacf/ivypanda-essays", "default", "train",
                                                  "TEXT", tidy, n, r, page=20)),
         ("paulgraham", 0.24 * 0.1, lambda n, r: hf("baber/paul_graham_essays", "default", "train",
