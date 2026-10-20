@@ -32,26 +32,27 @@ SUBREDDITS = [
 ]
 
 CODE = {
-    "c": (0.10, [
+    "c": (0.09, [
         ("redis/redis", "7.2.5", ["src"], ".c .h"),
         ("curl/curl", "curl-8_10_1", ["lib"], ".c .h"),
     ]),
-    "cpp": (0.25, [
+    "cpp": (0.22, [
         ("abseil/abseil-cpp", "20240722.0", ["absl"], ".cc .h"),
         ("fmtlib/fmt", "11.0.2", ["include", "src"], ".cc .h"),
     ]),
-    "python": (0.20, [
+    "python": (0.18, [
         ("python/cpython", "v3.12.7", ["Lib"], ".py"),
         ("django/django", "5.1.2", ["django"], ".py"),
     ]),
-    "rust": (0.10, [
+    "rust": (0.09, [
         ("BurntSushi/ripgrep", "14.1.1", ["crates"], ".rs"),
         ("tokio-rs/tokio", "tokio-1.40.0", ["tokio/src"], ".rs"),
     ]),
-    "nix": (0.10, [("NixOS/nixpkgs", "24.05", ["lib", "nixos/modules"], ".nix")]),
+    "nix": (0.09, [("NixOS/nixpkgs", "24.05", ["lib", "nixos/modules"], ".nix")]),
     "js": (0.08, [
         ("expressjs/express", "4.21.0", ["lib"], ".js"),
         ("preactjs/preact", "10.24.2", ["src", "hooks/src", "compat/src"], ".js"),
+        ("nodejs/node", "v20.18.0", ["lib"], ".js"),
     ]),
     "fish": (0.05, [
         ("fish-shell/fish-shell", "3.7.1", ["share/functions"], ".fish"),
@@ -68,6 +69,10 @@ CODE = {
     "ruby": (0.04, [
         ("jekyll/jekyll", "v4.3.4", ["lib"], ".rb"),
         ("sinatra/sinatra", "v4.0.0", ["lib"], ".rb"),
+    ]),
+    "latex": (0.08, [
+        ("dalcde/cam-notes", "0c1046b9244d84f65df513b14f22d26c51fd78b5",
+         ["IA_L", "IA_M", "IB_L", "IB_M", "II_L", "II_M", "III_L", "III_M"], ".tex"),
     ]),
 }
 
@@ -110,10 +115,47 @@ def unwrap(s):
     return re.sub(r"(?<!\n)\n(?!\n)", " ", s)
 
 
+# Runs of six identical symbols or digits (banners, rules, tables) and long hex strings are never typed.
+JUNK = re.compile(r"([^A-Za-z.\s])\1{5,}|\b[0-9A-Fa-f]{16,}\b")
+
+
+def keep_lines(s, bad):
+    return "\n".join(l for l in s.splitlines() if not bad(l))
+
+
+def dedupe(s):
+    seen = set()
+    out = []
+    for l in s.splitlines():
+        if len(l) < 40 or l not in seen:
+            out.append(l)
+        seen.add(l)
+    return "\n".join(out)
+
+
+def clean_markdown(s):
+    s = ascii_only(html.unescape(html.unescape(s)))
+    s = re.sub(r"\[([^\]\n]*)\]\([^)\s]*\)?", r"\1", s)
+    s = re.sub(r"https?://\S+|www\.\S+", "", s)
+    s = re.sub(r"</?[a-zA-Z][^<>\n]*>", "", s)
+    s = re.sub(r"\\([^\w\s])", r"\1", s)
+    s = re.sub(r"\*{2,}|(?<!\w)_+|_+(?!\w)", "", s)
+    s = re.sub(r"^#+ +", "", s, flags=re.M)
+    s = keep_lines(s, lambda l: l.startswith(">") or "I am a bot" in l or l.count("|") >= 2 or JUNK.search(l))
+    return tidy(s)
+
+
 def clean_reddit(s):
-    if s in ("[deleted]", "[removed]"):
-        return ""
-    return tidy(re.sub(r"https?://\S+", "", html.unescape(s)))
+    return "" if s in ("[deleted]", "[removed]") else clean_markdown(s)
+
+
+def clean_subtitles(s):
+    s = re.sub(r"^-+ ?", "", tidy(s), flags=re.M)
+    # OCR reads a capital I as l.
+    return re.sub(r"(?<![\w'])l(?=['\s]|$)", "I", s, flags=re.M)
+
+
+ARXIV_DEBRIS = re.compile(r"[\\{}&_^$@*]|\?\?\?|\(\s*[,;]?\s*\)|\[\s*\]|\[[a-z0-9]+\]|;;|\s[,.;:]|[,;:][.,]|\(\s*,")
 
 
 def clean_arxiv(s):
@@ -123,7 +165,10 @@ def clean_arxiv(s):
     s = re.sub(r" ([.,;:!?)\]])", r"\1", s)
     s = re.sub(r"([(\[]) ", r"\1", s)
     s = re.sub(r" (n't|'s|'re|'ve|'ll|'d|'m)\b", r"\1", s)
-    return tidy(s)
+    s = re.sub(r"\[[a-z]+\s*:[^\]]*\]", "", s)
+    s = re.sub(r"\s*''", '"', re.sub(r"``\s*", '"', s))
+    # A sentence that lost its math to @xmath, or kept LaTeX, is debris; drop it whole.
+    return tidy(" ".join(x for x in re.split(r"(?<=[.!?])\s+", s) if not ARXIV_DEBRIS.search(x)))
 
 
 def hf(dataset, config, split, column, clean, limit, rng, page=100):
@@ -195,12 +240,12 @@ def gh_files(repo, tag, paths, exts, auth):
     return files
 
 
-COMMENT = re.compile(r"^(//|/\*|\*|#(\s|!|$)|--|\(\*|\{-|;)")
+COMMENT = re.compile(r"^(//|/\*|\*|#(\s|!|$)|--|\(\*|\{-|;|%)")
 
 
 def clean_code(s):
-    lines = [l.strip() for l in ascii_only(s).splitlines()]
-    lines = [l for l in lines if l and len(l) < 300]
+    lines = [re.sub(r"(?<=\S) {2,}", " ", l.strip()) for l in ascii_only(s).splitlines()]
+    lines = [l for l in lines if l and len(l) < 300 and not JUNK.search(l) and sum(c.isdigit() for c in l) * 2 < len(l)]
     i = 0
     while i < len(lines) and COMMENT.match(lines[i]):
         i += 1
@@ -210,13 +255,14 @@ def clean_code(s):
 def code(lang, limit, rng, auth):
     out = []
     repos = CODE[lang][1]
+    total = 0
     with ThreadPoolExecutor(16) as ex:
-        for repo, tag, paths, exts in repos:
+        for i, (repo, tag, paths, exts) in enumerate(repos):
             files = gh_files(repo, tag, paths, exts, auth)
             rng.shuffle(files)
-            size, want = 0, limit // len(repos)
-            for i in range(0, len(files), 16):
-                batch = files[i:i + 16]
+            size, want = 0, (limit - total) // (len(repos) - i)
+            for j in range(0, len(files), 16):
+                batch = files[j:j + 16]
                 urls = [f"https://raw.githubusercontent.com/{repo}/{tag}/{f}" for f in batch]
                 for body in ex.map(get, urls):
                     d = clean_code(body.decode(errors="ignore"))
@@ -224,6 +270,7 @@ def code(lang, limit, rng, auth):
                     size += len(d) + 1
                 if size >= want:
                     break
+            total += size
     return out
 
 
@@ -236,7 +283,7 @@ def mine():
                                         capture_output=True, text=True).stdout)
         elif p.suffix == ".txt":
             texts.append(p.read_text())
-    return [tidy(unwrap(t)) for t in texts]
+    return [clean_markdown(unwrap(t.replace("\f", "\n"))) for t in texts]
 
 
 def main():
@@ -244,15 +291,17 @@ def main():
     english = [
         ("reddit", 0.40 * 0.6, reddit),
         ("subtitles", 0.40 * 0.4, lambda n, r: hf("dim/opensubtitles_clean_v1", "default", "train",
-                                                  "text", tidy, n, r, page=20)),
+                                                  "text", clean_subtitles, n, r, page=20)),
         ("ivypanda", 0.24 * 0.9, lambda n, r: hf("qwedsacf/ivypanda-essays", "default", "train",
                                                  "TEXT", tidy, n, r, page=20)),
         ("paulgraham", 0.24 * 0.1, lambda n, r: hf("baber/paul_graham_essays", "default", "train",
-                                                   "text", lambda s: tidy(unwrap(s)), n, r, page=10)),
+                                                   "text", lambda s: clean_markdown(unwrap(s)), n, r, page=10)),
         ("arxiv", 0.16, lambda n, r: hf("ccdv/arxiv-summarization", "document", "train",
                                         "article", clean_arxiv, n, r, page=5)),
     ]
-    parts = [cached(name, int(TOTAL * share), lambda n, fn=fn: fn(n, rng)) for name, share, fn in english]
+    parts = [dedupe(keep_lines(cached(name, int(TOTAL * share), lambda n, fn=fn: fn(n, rng)),
+                               lambda l: JUNK.search(l) or re.fullmatch(r"[\W_]+", l)))
+             for name, share, fn in english]
     auth = gh_auth()
     for lang, (share, _) in CODE.items():
         parts.append(cached(f"code_{lang}", int(TOTAL * 0.20 * share),
