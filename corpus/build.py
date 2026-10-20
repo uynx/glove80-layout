@@ -15,6 +15,7 @@ import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -133,6 +134,13 @@ def dedupe(s, seen=None):
     return "\n".join(out)
 
 
+# A long line whose opening recurs three or more times is a pasted template (moderator macros, bot replies).
+def drop_templates(s):
+    lines = s.splitlines()
+    openings = Counter(l[:45] for l in lines if len(l) >= 40)
+    return "\n".join(l for l in lines if len(l) < 40 or openings[l[:45]] < 3)
+
+
 def clean_markdown(s):
     s = ascii_only(html.unescape(html.unescape(s)))
     s = re.sub(r"\[([^\]\n]*)\]\([^)\s]*\)?", r"\1", s)
@@ -149,7 +157,8 @@ def clean_reddit(s):
     return "" if s in ("[deleted]", "[removed]") else clean_markdown(s)
 
 
-ARXIV_DEBRIS = re.compile(r"[\\{}&_^$@*]|\?\?\?|\(\s*[,;]?\s*\)|\[\s*\]|\[[a-z0-9]+\]|;;|\s[,.;:]|[,;:][.,]|\(\s*,")
+ARXIV_DEBRIS = re.compile(r"[\\{}&_^$@*]|\?\?\?|\(\s*[,;]?\s*\)|\[\s*\]|\[[a-z0-9]+\]|;;|\s[,.;:]|[,;:][.,]|\(\s*,"
+                          r"|\(\d{4}\)\s*\d|\b(phys|astrophys|nucl|lett|proc|ibid|rev)\.|^\(?[a-z]\.$|(,| and) [a-z]\.$")
 
 
 def clean_arxiv(s):
@@ -357,8 +366,8 @@ def main():
         ("arxiv", 0.16, lambda n, r: hf("ccdv/arxiv-summarization", "document", "train",
                                         "article", clean_arxiv, n, r, page=5)),
     ]
-    parts = [dedupe(keep_lines(cached(name, int(TOTAL * share), lambda n, fn=fn: fn(n, rng)),
-                               lambda l: JUNK.search(l) or re.fullmatch(r"[\W_]+", l)))
+    parts = [dedupe(drop_templates(keep_lines(cached(name, int(TOTAL * share), lambda n, fn=fn: fn(n, rng)),
+                               lambda l: JUNK.search(l) or re.fullmatch(r"[\W_]+", l))))
              for name, share, fn in english]
     auth = gh_auth()
     for lang, (share, _) in CODE.items():
