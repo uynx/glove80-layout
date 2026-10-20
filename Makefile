@@ -11,6 +11,7 @@ test: build/test
 	python3 tests/test_regret.py
 	python3 tests/test_zmk.py
 	python3 tests/test_corpus.py
+	python3 tests/test_langmap.py
 
 build:
 	mkdir -p build
