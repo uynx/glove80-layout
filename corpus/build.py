@@ -152,6 +152,8 @@ def clean_reddit(s):
 def clean_subtitles(s):
     s = re.sub(r"\([^)\n]*\)|\[[^\]\n]*\]", "", s)
     s = re.sub(r"^(-+|>>) *(\w+: *)?|^[A-Z][A-Z .']*: *", "", tidy(s), flags=re.M)
+    # A subtitle line break mid-sentence is a display break, not a typed Enter.
+    s = re.sub(r"(?<![.!?\"'])\n", " ", s)
     # OCR reads a capital I as l.
     return re.sub(r"(?<![\w'])l(?=['\s]|$)", "I", s, flags=re.M)
 
