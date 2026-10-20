@@ -146,6 +146,8 @@ Model build_model(const Weights& w, const std::string& digits, bool digits_on_ba
                 int k = g.trigram(s % NP, t % NP, u % NP);
                 bool one_layer = s / NP == t / NP && t / NP == u / NP;
                 float v = k == 1 ? (one_layer ? w.roll3 : 0) : k == 2 ? w.redirect : k == 3 ? w.redirect + w.bad_redirect : 0;
+                // Thumb keys are transparent on the symbol layer, so a symbol run through Space or Enter keeps the layer held.
+                if (s / NP == 1 && u / NP == 1 && is_thumb(t % NP)) v -= w.layer_boundary;
                 m.tri[(size_t(s) * S + t) * S + u] = v;
             }
 
@@ -243,6 +245,7 @@ void print_stats(const Scorer& sc, const Weights& w, const Layout& L) {
     for (auto& t : n.tri) {
         int k = g.trigram(P(t.a), P(t.b), P(t.c));
         if (k == 1 && Lr(t.a) == Lr(t.b) && Lr(t.b) == Lr(t.c)) roll3 += t.f;
+        if (Lr(t.a) == 1 && Lr(t.c) == 1 && is_thumb(P(t.b))) presses -= t.f;
         if (k == 2) red += t.f;
         if (k == 3) bad += t.f;
     }
