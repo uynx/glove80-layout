@@ -1,0 +1,17 @@
+base:
+· · · · ~ ·   · · q · · ·
+⇥ _ u o p ?   x l d f v z
+⎋ a i e n b   k r t s c y
+! ' , = . <   j h m g w `
+sym:
+· · · · · ·   · · · · · ·
+· * [ / { ^   # 3 0 2 8 ·
++ - : ) ( 9   ] 1 } " \ 4
+· 7 5 6 ; %   @ $ & > | ·
+score 1.35475
+effort/char 1.431   left hand 51.1%
+sfb 0.90%  sfs 4.90%  scissor 0.16%  half scissor 1.13%  wide jump 0.14%  lsb 0.87%
+inroll 11.41%  outroll 6.64%  alternate 43.39%
+roll3 0.80%  redirect 2.40%  bad redirect 0.21%
+layer key presses 1.80 per 100 chars
+finger load (L pinky..index, R index..pinky): 8.6 11.1 19.2 12.2 15.2 15.1 10.7 7.9
