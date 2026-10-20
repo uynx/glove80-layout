@@ -14,12 +14,12 @@
 using namespace kl;
 
 struct Weights {
-    double effort = 1, sfb = 4, sfs = 1.5, scissor = 2, lsb = 1;
+    double effort = 1, sfb = 4, sfs = 1.5, scissor = 5, half_scissor = 1.5, lsb = 1;
     double inroll = -0.6, outroll = -0.3, roll3 = -0.3, redirect = 1.5, bad_redirect = 1.5;
     double layer_switch = 1.5, layer_boundary = 0.75, thumb_sfb = 2;
 
     std::map<std::string, double*> table() {
-        return {{"effort", &effort}, {"sfb", &sfb}, {"sfs", &sfs}, {"scissor", &scissor},
+        return {{"effort", &effort}, {"sfb", &sfb}, {"sfs", &sfs}, {"scissor", &scissor}, {"half_scissor", &half_scissor},
                 {"lsb", &lsb}, {"inroll", &inroll}, {"outroll", &outroll}, {"roll3", &roll3},
                 {"redirect", &redirect}, {"bad_redirect", &bad_redirect},
                 {"layer_switch", &layer_switch}, {"layer_boundary", &layer_boundary},
@@ -76,6 +76,13 @@ struct Geo {
         return !is_thumb(a) && !is_thumb(b) && hand_of(a) == hand_of(b) && finger(a) != finger(b);
     }
     bool scissor(int a, int b) const { return same_hand_pair(a, b) && std::abs(finger(a) - finger(b)) == 1 && std::abs(row_of(a) - row_of(b)) >= 2; }
+    // One row apart, with the longer of two neighbouring fingers on the lower key.
+    bool half_scissor(int a, int b) const {
+        static const int length[] = {1, 2, 3, 2};  // pinky, ring, middle, index
+        if (!same_hand_pair(a, b) || std::abs(finger(a) - finger(b)) != 1 || std::abs(row_of(a) - row_of(b)) != 1) return false;
+        int lower = row_of(a) > row_of(b) ? a : b, upper = lower == a ? b : a;
+        return length[finger(lower)] > length[finger(upper)];
+    }
     bool lsb(int a, int b) const {
         auto wide = [](int p) { return col_of(p) == 0 || col_of(p) == 5; };
         return same_hand_pair(a, b) && std::abs(finger(a) - finger(b)) == 1 && (wide(a) || wide(b));
@@ -84,7 +91,8 @@ struct Geo {
     int trigram(int a, int b, int c) const {
         if (!same_hand_pair(a, b) || !same_hand_pair(b, c) || hand_of(a) != hand_of(c)) return 0;
         bool same_dir = (finger(b) > finger(a)) == (finger(c) > finger(b));
-        if (same_dir) return 1;
+        bool cramped = scissor(a, b) || scissor(b, c) || half_scissor(a, b) || half_scissor(b, c);
+        if (same_dir) return cramped ? 0 : 1;
         return finger(a) == 3 || finger(b) == 3 || finger(c) == 3 ? 2 : 3;
     }
 
@@ -93,8 +101,9 @@ struct Geo {
         if (is_thumb(a) && is_thumb(b)) return w.thumb_sfb;
         if (is_thumb(a) || is_thumb(b)) return 0;
         if (finger(a) == finger(b)) return w.sfb * dist(a, b);
+        if (scissor(a, b)) return w.scissor;
+        if (half_scissor(a, b)) return w.half_scissor;
         double c = finger(b) > finger(a) ? w.inroll : w.outroll;
-        if (scissor(a, b)) c += w.scissor;
         if (lsb(a, b)) c += w.lsb;
         return c;
     }
@@ -208,12 +217,13 @@ void print_stats(const Scorer& sc, const Weights& w, const Layout& L) {
         if (hand_of(P(c)) == 0) left += n.mono[c];
         fingers[hand_of(P(c)) * 5 + finger(P(c))] += n.mono[c];
     }
-    double sfb = 0, in = 0, out = 0, sc_ = 0, lsb = 0, alt = 0, presses = 0;
+    double sfb = 0, in = 0, out = 0, sc_ = 0, half = 0, lsb = 0, alt = 0, presses = 0;
     for (auto& b : n.bi) {
         int a = P(b.a), c = P(b.b);
         if (g.sfb(a, c)) sfb += b.f;
-        if (g.same_hand_pair(a, c)) (finger(c) > finger(a) ? in : out) += b.f;
+        if (g.same_hand_pair(a, c) && !g.scissor(a, c) && !g.half_scissor(a, c)) (finger(c) > finger(a) ? in : out) += b.f;
         if (g.scissor(a, c)) sc_ += b.f;
+        if (g.half_scissor(a, c)) half += b.f;
         if (g.lsb(a, c)) lsb += b.f;
         if (!is_thumb(a) && !is_thumb(c) && hand_of(a) != hand_of(c)) alt += b.f;
         if (Lr(b.a) == 0 && Lr(b.b) == 1) presses += b.f;
@@ -230,7 +240,7 @@ void print_stats(const Scorer& sc, const Weights& w, const Layout& L) {
     auto pct = [](double x) { return 100 * x; };
     std::printf("score %.5f\n", sc.score(L.pos));
     std::printf("effort/char %.3f   left hand %.1f%%\n", effort / keys, pct(left / keys));
-    std::printf("sfb %.2f%%  sfs %.2f%%  scissor %.2f%%  lsb %.2f%%\n", pct(sfb), pct(sfs), pct(sc_), pct(lsb));
+    std::printf("sfb %.2f%%  sfs %.2f%%  scissor %.2f%%  half scissor %.2f%%  lsb %.2f%%\n", pct(sfb), pct(sfs), pct(sc_), pct(half), pct(lsb));
     std::printf("inroll %.2f%%  outroll %.2f%%  alternate %.2f%%\n", pct(in), pct(out), pct(alt));
     std::printf("roll3 %.2f%%  redirect %.2f%%  bad redirect %.2f%%\n", pct(roll3), pct(red), pct(bad));
     std::printf("layer key presses %.2f per 100 chars\n", pct(presses));
