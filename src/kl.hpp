@@ -66,8 +66,8 @@ struct Layout {
 struct Model {
     int nslots = 0, nphys = 0;
     std::vector<int> phys;
-    std::vector<float> mono, bi;    // by slot
-    std::vector<float> skip, tri;   // by physical key
+    std::vector<float> mono, bi, tri;  // by slot
+    std::vector<float> skip;           // by physical key
     std::vector<uint8_t> allowed;   // [char * nslots + slot]
     std::vector<int> pinned;        // char -> slot, or -1
 };
@@ -85,7 +85,7 @@ public:
 
     float bi(int a, int b) const { return m.bi[a * m.nslots + b]; }
     float skip(int a, int b) const { return m.skip[m.phys[a] * m.nphys + m.phys[b]]; }
-    float tri(int a, int b, int c) const { return m.tri[(m.phys[a] * m.nphys + m.phys[b]) * m.nphys + m.phys[c]]; }
+    float tri(int a, int b, int c) const { return m.tri[(size_t(a) * m.nslots + b) * m.nslots + c]; }
 
     double score(const std::vector<int>& p) const {
         double t = 0;
