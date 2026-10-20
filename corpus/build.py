@@ -123,8 +123,8 @@ def keep_lines(s, bad):
     return "\n".join(l for l in s.splitlines() if not bad(l))
 
 
-def dedupe(s):
-    seen = set()
+def dedupe(s, seen=None):
+    seen = set() if seen is None else seen
     out = []
     for l in s.splitlines():
         if len(l) < 40 or l not in seen:
@@ -259,6 +259,8 @@ def code(lang, limit, rng, auth):
     out = []
     repos = CODE[lang][1]
     total = 0
+    # A long line repeated across files was pasted, not typed, so only its first copy counts.
+    seen = set()
     with ThreadPoolExecutor(16) as ex:
         for i, (repo, tag, paths, exts) in enumerate(repos):
             files = gh_files(repo, tag, paths, exts, auth)
@@ -268,7 +270,7 @@ def code(lang, limit, rng, auth):
                 batch = files[j:j + 16]
                 urls = [f"https://raw.githubusercontent.com/{repo}/{tag}/{f}" for f in batch]
                 for body in ex.map(get, urls):
-                    d = clean_code(body.decode(errors="ignore"))
+                    d = dedupe(clean_code(body.decode(errors="ignore")), seen)
                     out.append(d)
                     size += len(d) + 1
                 if size >= want:
