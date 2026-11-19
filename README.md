@@ -16,7 +16,7 @@ Scraped text is full of things nobody actually typed, so `corpus/build.py` clean
 
 The score adds up key effort, same finger bigrams (scaled by how far the finger travels) and skipgrams, scissors, wide jumps, lateral stretches and redirects, and subtracts a bonus for inward and outward rolls, which is smaller for ring to pinky rolls. A roll only counts when both keys are on the same layer, since the thumb press in between breaks it. Switching layers costs extra, but less next to Space or Enter, where it falls at a word boundary. Every weight can be changed from the command line with `-w name=value`, and the defaults are at the top of `src/main.cpp`.
 
-To pick the weights, `tools/sweep.sh` optimizes once with the defaults and once with each weight at half and one and a half times its value, and `tools/regret.py` scores every resulting layout under all 31 settings. The layout from the default weights came within 0.79% of the best layout under every setting, which shows that the result doesn't depend much on the exact weights I chose.
+To pick the weights, `tools/sweep.sh` optimizes once with the defaults and once with each of the 15 swept weights (`thumb_sfb` stays fixed) at half and one and a half times its value, and `tools/regret.py` scores every resulting layout under all 31 settings. The layout from the default weights came within 0.79% of the best layout under every setting, which shows that the result doesn't depend much on the exact weights I chose.
 
 The optimizer only rescores the n-grams that contain the two keys being swapped, which gets about half a million swaps per second on eight threads of my i7-8700K. A test checks that this running score matches a full rescore after 100,000 random swaps.
 
@@ -35,4 +35,4 @@ python3 tools/langmap.py layouts/best.txt   # one line for init.lua
 
 Pushing a change under `firmware/` makes GitHub Actions build `glove80.uf2`, which flashes onto both halves.
 
-Put your own writing (PDF or text) in `corpus/private/` before building the corpus. It gets mixed in at its natural size and is also written to `corpus/mine.txt` so a layout can be scored on it alone. Both folders are ignored by git.
+Put your own writing (PDF, or `.txt` files with `>`-prefixed quote lines) in `corpus/private/` before building the corpus. It gets mixed in at its natural size and is also written to `corpus/mine.txt` so a layout can be scored on it alone. Both `corpus/private/` and `corpus/mine.txt` are ignored by git.
